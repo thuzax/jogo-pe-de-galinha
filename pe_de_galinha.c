@@ -1,3 +1,11 @@
+// Created by: Arthur H. S. Cruz
+// Copyright: Arthur H. S. Cruz, 2023
+// License: MIT License
+// This is a C implementation of the game "Shisima", also known in Brazil as "Pé de Galinha".
+
+// Github repository: https://github.com/thuzax/jogo-pe-de-galinha
+
+// Library includes
 #include <stdio.h>
 #include <stdbool.h>
 #include <stdlib.h>
@@ -5,18 +13,22 @@
 #include <unistd.h>
 #include <time.h>
 
+// Constants definition
+
+// Player symbols
 #define PLAYER_1 'X'
 #define PLAYER_2 'O'
 #define EMPTY '+'
 
-
+// Board size and number of pieces
 #define NUM_PIECES 3
 #define BOARD_SIZE 3
 
+// Number of nodes (positions) in the board
 #define NUM_NODES (BOARD_SIZE * BOARD_SIZE)
 
-#define MAX_TURNS 30
-
+// Maximum tree height for the Min-Max algorithm (Computer AI)
+// Ten is not proved to be optimal, but was tested and never lost
 #define MAX_TREE_HEIGHT 10
 
 // Max number of moves is the degree of the middle node
@@ -24,6 +36,10 @@
 // So there can be at most 3 moves for each piece of the player
 #define MAX_MOVES 9
 
+// Maximum number of turns in the game
+#define MAX_TURNS 30
+
+// Player index enumeration
 typedef enum {
     id_player_1,
     id_player_2,
@@ -63,7 +79,6 @@ typedef struct Board {
 } Board;
 
 typedef struct BoardState {
-    // Board* board;
     // Use "struct BoardState" here (since it's not fully defined yet)
     struct BoardState* parent;
     // Children of the board state
@@ -111,19 +126,12 @@ char get_player_from_symbol(char symbol);
 char get_symbol_from_player(int player);
 void print_board(Board* board);
 
-// Auxiliary functions
-int min(int a, int b) {
-    return (a < b) ? a : b;
-}
-int max(int a, int b) {
-    return (a > b) ? a : b;
-}
-
 // Move functions
-bool is_valid_move_with_prints(
+bool is_valid_move(
     Board* board, 
     Move move, 
-    AdjacencyMatrix* adj_matrix
+    AdjacencyMatrix* adj_matrix,
+    bool print_error
 );
 void add_move_if_valid(
     Move** valid_moves, 
@@ -221,6 +229,16 @@ void player_vs_player();
 void player_vs_computer(bool player_starts);
 void print_menu();
 int get_menu_option();
+
+
+// **********
+// Auxiliary functions
+int min(int a, int b) {
+    return (a < b) ? a : b;
+}
+int max(int a, int b) {
+    return (a > b) ? a : b;
+}
 
 
 // **********
@@ -449,24 +467,6 @@ void delete_board(Board* board) {
 }
 
 
-// Copy a Board variable to another
-void copy_board(Board* board, Board* copy) {
-    copy->size = board->size;
-    copy->num_pieces = board->num_pieces;
-    
-    copy->turn_player = board->turn_player;
-    copy->winner = board->winner;
-
-    // Allocate memory for the board state
-    copy->table = (int**)malloc(copy->size * sizeof(int*));
-    for (int i = 0; i < copy->size; i++) {
-        copy->table[i] = (int*)malloc(copy->size * sizeof(int));
-        for (int j = 0; j < copy->size; j++) {
-            copy->table[i][j] = board->table[i][j];
-        }
-    }
-}
-
 // Check if two nodes are connected in the adjacency matrix
 bool connected(
     AdjacencyMatrix* adj_matrix,
@@ -530,7 +530,7 @@ char get_symbol_from_player(int player) {
 
 // Print the board state
 void print_board(Board* board) {
-    // Format
+    // Format of the board:
     // 1 -- 2 -- 3
     // | \  |  / |
     // |  \ | /  |
@@ -538,6 +538,7 @@ void print_board(Board* board) {
     // |  / | \  |
     // | /  |  \ |
     // 7 -- 8 -- 9
+    // It is also printed the indices on top and left of the board
     
     // Print the board state
     
@@ -598,40 +599,49 @@ void print_board(Board* board) {
 // ***********
 // Move functions
 
-// Check if a move is valid with prints
-bool is_valid_move_with_prints(
+// Check if a move is valid
+bool is_valid_move(
     Board* board, 
     Move move, 
-    AdjacencyMatrix* adj_matrix
+    AdjacencyMatrix* adj_matrix,
+    bool print_error
 ) {
 
     // Check if the origin is valid
     if (!board_position_valid(board, move.origin)) {
-        printf("\n** MOVIMENTO INVALIDO: Posicao de origem invalida. ");
+        if (print_error) {
+            printf("\n** MOVIMENTO INVALIDO: Posicao de origem invalida. ");
+        }
         return false;
     }
 
     // Check if the destiny position is valid
     if (!board_position_valid(board, move.destiny)) {
-        printf("\n** MOVIMENTO INVALIDO: Posicao de destino invalida. ");
+        if (print_error) {
+            printf("\n** MOVIMENTO INVALIDO: Posicao de destino invalida. ");
+        }
         return false;
     }
 
     // Check if player is moving their own piece
     if (get_player(move.origin, board) != board->turn_player) {
-        printf(
-            "\n **MOVIMENTO INVALIDO: Nao ha peca do jogador na posicao "
-            "escolhida. "
-        );
+        if (print_error) {
+            printf(
+                "\n **MOVIMENTO INVALIDO: Nao ha peca do jogador na posicao "
+                "escolhida. "
+            );
+        }
         return false;
     }
 
     // Check if the origin is the same as the destiny
     if (positions_are_equal(move.origin, move.destiny)) {
-        printf(
-            "\n** MOVIMENTO INVALIDO: A posicao de origem e igual a "
-            "posicao de destino. "
-        );
+        if (print_error) {
+            printf(
+                "\n** MOVIMENTO INVALIDO: A posicao de origem e igual a "
+                "posicao de destino. "
+            );
+        }
         return false;
     }
 
@@ -639,54 +649,20 @@ bool is_valid_move_with_prints(
     int node_b = convert_position_to_node(move.destiny, board->size);
     // Check if the new position is not adjacent to the old position
     if (!connected(adj_matrix, node_a, node_b)) {
-        printf(
-            "\n** MOVIMENTO INVALIDO: A posicao de destino nao e "
-            "adjacente a posicao de origem. "
-        );
+        if (print_error) {
+            printf(
+                "\n** MOVIMENTO INVALIDO: A posicao de destino nao e "
+                "adjacente a posicao de origem. "
+            );
+        }
         return false;
     }
 
     // Check if the chosen new position is valid
     if (get_player(move.destiny, board) != id_empty) {
-        printf("\n** MOVIMENTO INVALIDO: Posicao ocupada. ");
-        return false;
-    }
-
-    // If all checks passed, the move is valid
-    return true;
-}
-
-// Check if a move is valid without prints
-bool is_valid_move(Board* board, Move move, AdjacencyMatrix* adj_matrix) {
-        // Check if the origin is valid
-    if (!board_position_valid(board, move.origin)) {
-        return false;
-    }
-
-    // Check if the destiny position is valid
-    if (!board_position_valid(board, move.destiny)) {
-        return false;
-    }
-
-    // Check if the origin is the same as the destiny
-    if (positions_are_equal(move.origin, move.destiny)) {
-        return false;
-    }
-
-    // Check if player is moving their own piece
-    if (get_player(move.origin, board) != board->turn_player) {
-        return false;
-    }
-
-    // Check if the chosen new position is valid
-    if (get_player(move.destiny, board) != id_empty) {
-        return false;
-    }
-
-    int node_a = convert_position_to_node(move.origin, board->size);
-    int node_b = convert_position_to_node(move.destiny, board->size);
-    // Check if the new position is not adjacent to the old position
-    if (!connected(adj_matrix, node_a, node_b)) {
+        if (print_error) {
+            printf("\n** MOVIMENTO INVALIDO: Posicao ocupada. ");
+        }
         return false;
     }
 
@@ -710,7 +686,7 @@ void add_move_if_valid(
     move->destiny = destiny;
 
     // Check if the move is valid and add it to the valid moves
-    if (is_valid_move(board, *move, adj_matrix)) {
+    if (is_valid_move(board, *move, adj_matrix, false)) {
         valid_moves[*move_count] = move;
         (*move_count)++;
     } else {
@@ -820,10 +796,7 @@ Move* get_computer_move(
     int computer_id,
     AdjacencyMatrix* adj_matrix
 ) {
-    // Initialize the root state
-    // Board* board_copy = (Board*) malloc(size_of_board_struct());
-    // copy_board(board, board_copy);
-    
+    // Create the root board state   
     BoardState* root = create_board_state(NULL);
 
     // Set the turn player to the computer
@@ -862,10 +835,12 @@ Move* get_player_move(int player) {
     scanf("%d", &(destiny.row));
     scanf("%d", &(destiny.col));
 
+    // Allocate memory for the move
     Move* move = malloc(sizeof(Move));
     move->origin = origin;
     move->destiny = destiny;
 
+    // Return the move
     return move;
 }
 
@@ -876,8 +851,9 @@ void make_move(
     bool* move_played, 
     AdjacencyMatrix* adj_matrix
 ) {
-    // Make a move for the player
-    if (is_valid_move_with_prints(board, move, adj_matrix)) {
+    // Make a move for the player if it is valid
+    // Print the error message if the move is invalid
+    if (is_valid_move(board, move, adj_matrix, true)) {
         set_player(move.destiny, board->turn_player, board);
         set_player(move.origin, id_empty, board);
         *move_played = true;
@@ -1142,10 +1118,6 @@ void calculate_root_children_score(
 ) {
     // For each move, create a new board state and calculate the score
     for (int i = 0; i < num_moves; i++) {
-        // Create a new board state for the move
-        // Board* new_board = (Board*) malloc(size_of_board_struct());
-        // copy_board(root->board, new_board);
-        
         // Create a new board state
         BoardState* new_state = create_board_state(root);
 
