@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <math.h>
 #include <unistd.h>
+#include <time.h>
 
 #define PLAYER_1 'X'
 #define PLAYER_2 'O'
@@ -14,9 +15,9 @@
 
 #define NUM_NODES (BOARD_SIZE * BOARD_SIZE)
 
-#define MAX_ROUNDS 30
+#define MAX_TURNS 30
 
-#define MAX_TREE_HEIGHT 4
+#define MAX_TREE_HEIGHT 10
 
 // Max number of moves is the degree of the middle node
 // There are 9 nodes in the board and 6 pieces
@@ -55,14 +56,14 @@ typedef struct AdjacencyMatrix {
 typedef struct Board {
     int size;
     int num_pieces;
-    int** state;
+    int** table;
     int turn_player;
     int winner;
-    AdjacencyMatrix* adj_matrix;
+    // AdjacencyMatrix* adj_matrix;
 } Board;
 
 typedef struct BoardState {
-    Board* board;
+    // Board* board;
     // Use "struct BoardState" here (since it's not fully defined yet)
     struct BoardState* parent;
     // Children of the board state
@@ -77,6 +78,10 @@ typedef struct BoardState {
 
 // Function prototypes
 // Explanations are in the function definitions below
+
+// Auxiliary functions
+int min(int a, int b);
+int max(int a, int b);
 
 // Position functions
 bool positions_are_equal(Position pos_a, Position pos_b);
@@ -95,63 +100,106 @@ bool board_position_valid(Board* board, Position pos);
 Board* create_board();
 void delete_board(Board* board);
 void copy_board(Board* board, Board* copy);
-bool connected(Board* board, Position pos_node_a, Position pos_node_b);
+bool connected(
+    AdjacencyMatrix* adj_matrix,
+    int node_a, 
+    int node_b
+);
 int get_player(Position pos, Board* board);
 void set_player(Position pos, int player, Board* board);
 char get_player_from_symbol(char symbol);
 char get_symbol_from_player(int player);
 void print_board(Board* board);
 
+// Auxiliary functions
+int min(int a, int b) {
+    return (a < b) ? a : b;
+}
+int max(int a, int b) {
+    return (a > b) ? a : b;
+}
 
 // Move functions
-bool is_valid_move_with_prints(Board* board, Move move);
+bool is_valid_move_with_prints(
+    Board* board, 
+    Move move, 
+    AdjacencyMatrix* adj_matrix
+);
 void add_move_if_valid(
     Move** valid_moves, 
     int* move_count, 
     Position origin,
     Position destiny,
-    Board* board
+    Board* board,
+    AdjacencyMatrix* adj_matrix
 );
 void add_moves_from_position(
     Move** valid_moves, 
     int* move_count, 
     Position origin,
-    Board* board
+    Board* board,
+    AdjacencyMatrix* adj_matrix
 );
 void list_valid_moves(
     Board* board, 
     Move** valid_moves, 
-    int* move_count
+    int* move_count,
+    AdjacencyMatrix* adj_matrix
 );
 Move* get_computer_move(
     Board* board,
     int player_id,
-    int computer_id
+    int computer_id,
+    AdjacencyMatrix* adj_matrix
 );
 Move* get_player_move(int player);
-void make_move(Board* board, Move move, bool* move_player);
+void make_move(
+    Board* board, 
+    Move move, bool* 
+    move_player, 
+    AdjacencyMatrix* adj_matrix
+);
 
 
 // Board state functions
 int size_of_board_state();
-BoardState* create_board_state(Board* board, BoardState* parent);
+BoardState* create_board_state(BoardState* parent);
 void delete_board_state(BoardState* state);
 bool is_winning_move(Board* board, Move* move);
-Move* get_winning_move(BoardState* state, Move** moves, int num_moves);
-int calculate_state_score(BoardState* state, int player, int computer_player);
+Move* get_winning_move(
+    BoardState* state, 
+    Board* board, 
+    Move** moves, 
+    int num_moves
+);
+int calculate_state_score(
+    BoardState* state, 
+    Board* board, 
+    int player, 
+    int computer_player,
+    AdjacencyMatrix* adj_matrix
+);
 void calculate_root_children_score(
     BoardState* root,
+    Board* board,
     int player_id,
     int computer_id,
     Move** moves,
-    int num_moves
+    int num_moves,
+    AdjacencyMatrix* adj_matrix
 );
 int get_move_with_highest_score_position(
     BoardState** children, 
     int num_children, 
     int computer_id
 );
-Move* get_best_move(BoardState* root, int player_id, int computer_id);
+Move* get_best_move(
+    BoardState* root, 
+    Board* board,
+    int player_id, 
+    int computer_id,
+    AdjacencyMatrix* adj_matrix
+);
 
 // Game functions
 bool win_by_row(Board* board, int row);
@@ -162,18 +210,17 @@ bool is_winner_by_rows(Board* board);
 bool is_winner_by_columns(Board* board);
 bool is_winner_by_diagonals(Board* board);
 bool player_is_winner(Board* board);
-void play_user_turn(Board* board);
-void play_computer_turn(Board* board);
+void play_user_turn(Board* board, AdjacencyMatrix* adj_matrix);
+void play_computer_turn(
+    Board* board, 
+    int player_id, 
+    int computer_id,
+    AdjacencyMatrix* adj_matrix
+);
 void player_vs_player();
 void player_vs_computer(bool player_starts);
 void print_menu();
 int get_menu_option();
-
-
-
-
-
-
 
 
 // **********
@@ -327,7 +374,7 @@ int size_of_board_struct() {
     // integers: size, num_pieces, turn_player
     // pointers: adj_matrix, state
     return (
-        sizeof(int) * 4 + sizeof(int**) + sizeof(AdjacencyMatrix*)
+        sizeof(int) * 4 + sizeof(int**) 
     );
 }
 
@@ -362,23 +409,23 @@ Board* create_board() {
     board->winner = id_empty;
 
     // Allocate memory for the board state
-    board->state = (int**)malloc(board->size * sizeof(int*));
+    board->table = (int**)malloc(board->size * sizeof(int*));
     for (int i = 0; i < board->size; i++) {
-        board->state[i] = (int*)malloc(board->size * sizeof(int));
+        board->table[i] = (int*)malloc(board->size * sizeof(int));
         for (int j = 0; j < board->size; j++) {
             // Initialize as empty values
-            board->state[i][j] = id_empty;
+            board->table[i][j] = id_empty;
         }
     }
 
     // Set the board pices at the initial positions
     for (int i = 0; i < board->num_pieces; i++) {
-        board->state[0][i] = id_player_2;
-        board->state[board->size-1][i] = id_player_1;
+        board->table[0][i] = id_player_2;
+        board->table[board->size-1][i] = id_player_1;
     }
 
     // Create the adjacency matrix
-    board->adj_matrix = create_adjacency_matrix(NUM_NODES);
+    // board->adj_matrix = create_adjacency_matrix(NUM_NODES);
 
     return board;
 }
@@ -388,12 +435,12 @@ Board* create_board() {
 void delete_board(Board* board) {
     // Free the allocated memory for the board state
     for (int i = 0; i < board->size; i++) {
-        free(board->state[i]);
+        free(board->table[i]);
     }
-    free(board->state);
+    free(board->table);
     
     // Free the allocated memory for the adjacency matrix
-    delete_adjacency_matrix(board->adj_matrix);
+    // delete_adjacency_matrix(board->adj_matrix);
 
     
     free(board);
@@ -411,50 +458,21 @@ void copy_board(Board* board, Board* copy) {
     copy->winner = board->winner;
 
     // Allocate memory for the board state
-    copy->state = (int**)malloc(copy->size * sizeof(int*));
+    copy->table = (int**)malloc(copy->size * sizeof(int*));
     for (int i = 0; i < copy->size; i++) {
-        copy->state[i] = (int*)malloc(copy->size * sizeof(int));
+        copy->table[i] = (int*)malloc(copy->size * sizeof(int));
         for (int j = 0; j < copy->size; j++) {
-            copy->state[i][j] = board->state[i][j];
-        }
-    }
-
-    // Copy the adjacency matrix
-    copy->adj_matrix = malloc(sizeof(AdjacencyMatrix));
-
-    copy->adj_matrix->size = board->adj_matrix->size;
-    copy->adj_matrix->matrix = (
-        (bool**) malloc(copy->adj_matrix->size * sizeof(bool*))
-    );
-    
-    for (int i = 0; i < copy->adj_matrix->size; i++) {
-        copy->adj_matrix->matrix[i] = (
-            (bool*) malloc(copy->adj_matrix->size * sizeof(bool))
-        );
-        for (int j = 0; j < copy->adj_matrix->size; j++) {
-            copy->adj_matrix->matrix[i][j] = board->adj_matrix->matrix[i][j];
+            copy->table[i][j] = board->table[i][j];
         }
     }
 }
 
 // Check if two nodes are connected in the adjacency matrix
 bool connected(
-    Board* board,
-    Position pos_node_a,
-    Position pos_node_b
+    AdjacencyMatrix* adj_matrix,
+    int node_a,
+    int node_b
 ) {
-    // Check if positions are invalid
-    if (!board_position_valid(board, pos_node_a)) {
-        return false;
-    }
-    if (!board_position_valid(board, pos_node_b)) {
-        return false;
-    }
-
-    // Get the index of the nodes in the adjacency matrix
-    int node_a = convert_position_to_node(pos_node_a, board->size);
-    int node_b = convert_position_to_node(pos_node_b, board->size);
-    
     // Check if the indices are valid
     if (node_a < 0 || node_b < 0) {
         return false;
@@ -462,7 +480,7 @@ bool connected(
 
     // Return the value of the adjacency matrix
     // Which indicates if the nodes are connected
-    return board->adj_matrix->matrix[node_a][node_b];
+    return adj_matrix->matrix[node_a][node_b];
 }
 
 
@@ -472,7 +490,7 @@ int get_player(Position pos, Board* board) {
     if (!board_position_valid(board, pos)) {
         return id_empty;
     }
-    return board->state[pos.row][pos.col];
+    return board->table[pos.row][pos.col];
 }
 
 
@@ -483,7 +501,7 @@ void set_player(Position pos, int player, Board* board) {
         printf("Posicao invalida.\n");
         return;
     }
-    board->state[pos.row][pos.col] = player;
+    board->table[pos.row][pos.col] = player;
     return;
 }
 
@@ -540,7 +558,7 @@ void print_board(Board* board) {
 
     // Print first row
     for (int j = 0; j < board->size; j++) {
-        printf("%c", get_symbol_from_player(board->state[0][j]));
+        printf("%c", get_symbol_from_player(board->table[0][j]));
         if (j < board->size-1) {
             printf("---");
         }
@@ -566,7 +584,7 @@ void print_board(Board* board) {
         printf(" %d |  ", i+1);
         // Print numbers row
         for (int j = 0; j < board->size; j++) {
-            printf("%c", get_symbol_from_player(board->state[i][j]));
+            printf("%c", get_symbol_from_player(board->table[i][j]));
             if (j < board->size-1) {
                 printf("---");
             }
@@ -581,7 +599,12 @@ void print_board(Board* board) {
 // Move functions
 
 // Check if a move is valid with prints
-bool is_valid_move_with_prints(Board* board, Move move) {
+bool is_valid_move_with_prints(
+    Board* board, 
+    Move move, 
+    AdjacencyMatrix* adj_matrix
+) {
+
     // Check if the origin is valid
     if (!board_position_valid(board, move.origin)) {
         printf("\n** MOVIMENTO INVALIDO: Posicao de origem invalida. ");
@@ -612,8 +635,10 @@ bool is_valid_move_with_prints(Board* board, Move move) {
         return false;
     }
 
+    int node_a = convert_position_to_node(move.origin, board->size);
+    int node_b = convert_position_to_node(move.destiny, board->size);
     // Check if the new position is not adjacent to the old position
-    if (!connected(board, move.origin, move.destiny)) {
+    if (!connected(adj_matrix, node_a, node_b)) {
         printf(
             "\n** MOVIMENTO INVALIDO: A posicao de destino nao e "
             "adjacente a posicao de origem. "
@@ -632,8 +657,8 @@ bool is_valid_move_with_prints(Board* board, Move move) {
 }
 
 // Check if a move is valid without prints
-bool is_valid_move(Board* board, Move move) {
-    // Check if the origin is valid
+bool is_valid_move(Board* board, Move move, AdjacencyMatrix* adj_matrix) {
+        // Check if the origin is valid
     if (!board_position_valid(board, move.origin)) {
         return false;
     }
@@ -643,28 +668,25 @@ bool is_valid_move(Board* board, Move move) {
         return false;
     }
 
+    // Check if the origin is the same as the destiny
+    if (positions_are_equal(move.origin, move.destiny)) {
+        return false;
+    }
+
     // Check if player is moving their own piece
     if (get_player(move.origin, board) != board->turn_player) {
         return false;
     }
 
-    // Check if the origin is the same as the destiny
-    if (positions_are_equal(move.origin, move.destiny)) {
-        return false;
-    }
-
-    // Check if the origin is the same as the destiny
-    if (positions_are_equal(move.origin, move.destiny)) {
-        return false;
-    }
-
-    // Check if the new position is not adjacent to the old position
-    if (!connected(board, move.origin, move.destiny)) {
-        return false;
-    }
-
     // Check if the chosen new position is valid
     if (get_player(move.destiny, board) != id_empty) {
+        return false;
+    }
+
+    int node_a = convert_position_to_node(move.origin, board->size);
+    int node_b = convert_position_to_node(move.destiny, board->size);
+    // Check if the new position is not adjacent to the old position
+    if (!connected(adj_matrix, node_a, node_b)) {
         return false;
     }
 
@@ -679,7 +701,8 @@ void add_move_if_valid(
     int* move_count, 
     Position origin,
     Position destiny,
-    Board* board
+    Board* board,
+    AdjacencyMatrix* adj_matrix
 ) {
     // Initialize a new move
     Move* move = (Move*) malloc(sizeof(Move));
@@ -687,21 +710,24 @@ void add_move_if_valid(
     move->destiny = destiny;
 
     // Check if the move is valid and add it to the valid moves
-    if (is_valid_move(board, *move)) {
+    if (is_valid_move(board, *move, adj_matrix)) {
         valid_moves[*move_count] = move;
         (*move_count)++;
     } else {
         // Remove the move if it is not valid
         free(move);
     }
+
+    return;
 }
 
 // Get the valid moves for the piece located on origin position
 void add_moves_from_position(
     Move** valid_moves, 
-    int* move_count, 
+    int* n_moves, 
     Position origin,
-    Board* board
+    Board* board,
+    AdjacencyMatrix* adj_matrix
 ) {
     Position destiny;
     
@@ -710,42 +736,42 @@ void add_moves_from_position(
     // i + 1, j (down)
     destiny.row = origin.row + 1;
     destiny.col = origin.col;
-    add_move_if_valid(valid_moves, move_count, origin, destiny, board);
+    add_move_if_valid(valid_moves, n_moves, origin, destiny, board, adj_matrix);
     
     // i - 1, j (up)
     destiny.row = origin.row - 1;
     destiny.col = origin.col;
-    add_move_if_valid(valid_moves, move_count, origin, destiny, board);
+    add_move_if_valid(valid_moves, n_moves, origin, destiny, board, adj_matrix);
 
     // i, j + 1 (right)
     destiny.row = origin.row;
     destiny.col = origin.col + 1;
-    add_move_if_valid(valid_moves, move_count, origin, destiny, board);
+    add_move_if_valid(valid_moves, n_moves, origin, destiny, board, adj_matrix);
     
     // i, j - 1 (left)
     destiny.row = origin.row;
     destiny.col = origin.col - 1;
-    add_move_if_valid(valid_moves, move_count, origin, destiny, board);
+    add_move_if_valid(valid_moves, n_moves, origin, destiny, board, adj_matrix);
 
     // i + 1, j + 1 (down-right)
     destiny.row = origin.row + 1;
     destiny.col = origin.col + 1;
-    add_move_if_valid(valid_moves, move_count, origin, destiny, board);
+    add_move_if_valid(valid_moves, n_moves, origin, destiny, board, adj_matrix);
     
     // i - 1, j - 1 (up-left)
     destiny.row = origin.row - 1;
     destiny.col = origin.col - 1;
-    add_move_if_valid(valid_moves, move_count, origin, destiny, board);
-    
+    add_move_if_valid(valid_moves, n_moves, origin, destiny, board, adj_matrix);
+
     // i + 1, j - 1 (down-left)
     destiny.row = origin.row + 1;
     destiny.col = origin.col - 1;
-    add_move_if_valid(valid_moves, move_count, origin, destiny, board);
+    add_move_if_valid(valid_moves, n_moves, origin, destiny, board, adj_matrix);
 
     // i - 1, j + 1 (up-right)
     destiny.row = origin.row - 1;
     destiny.col = origin.col + 1;
-    add_move_if_valid(valid_moves, move_count, origin, destiny, board);
+    add_move_if_valid(valid_moves, n_moves, origin, destiny, board, adj_matrix);
 }
 
 
@@ -753,17 +779,18 @@ void add_moves_from_position(
 void list_valid_moves(
     Board* board, 
     Move** valid_moves, 
-    int* move_count
+    int* n_moves,
+    AdjacencyMatrix* adj_matrix
 ) {
    
     // Allocate memory for the valid moves
-    *move_count = 0;
+    *n_moves = 0;
 
     // Iterate through the board
     for (int i = 0; i < board->size; i++) {
         for (int j = 0; j < board->size; j++) {
             // Check if the current position has a piece of the player
-            if (board->state[i][j] == board->turn_player) {
+            if (board->table[i][j] == board->turn_player) {
             
                 // Initialize a variable to store the move
                 Position origin;
@@ -773,9 +800,10 @@ void list_valid_moves(
                 // Add the valid moves from the current position
                 add_moves_from_position(
                     valid_moves, 
-                    move_count, 
+                    n_moves, 
                     origin, 
-                    board
+                    board,
+                    adj_matrix
                 );
             }
         }
@@ -789,20 +817,22 @@ void list_valid_moves(
 Move* get_computer_move(
     Board* board,
     int player_id,
-    int computer_id
+    int computer_id,
+    AdjacencyMatrix* adj_matrix
 ) {
     // Initialize the root state
-    Board* board_copy = (Board*) malloc(size_of_board_struct());
-    copy_board(board, board_copy);
+    // Board* board_copy = (Board*) malloc(size_of_board_struct());
+    // copy_board(board, board_copy);
     
-    BoardState* root = create_board_state(board_copy, NULL);
-    root->height = 0;
+    BoardState* root = create_board_state(NULL);
 
     // Set the turn player to the computer
-    Move* best_move = get_best_move(root, player_id, computer_id);
-    printf("Melhor movimento: (%d, %d) -> (%d, %d)\n",
-        best_move->origin.row, best_move->origin.col,
-        best_move->destiny.row, best_move->destiny.col
+    Move* best_move = get_best_move(
+        root, 
+        board, 
+        player_id, 
+        computer_id,
+        adj_matrix
     );
 
     // Free the allocated memory for the root state and its children
@@ -816,16 +846,16 @@ Move* get_computer_move(
 Move* get_player_move(int player) {
     // Asks for the row and column of the piece to move
     printf(
-        "Jogador %d, escolha uma peça (linha e coluna) para mover: ", 
-        player
+        "Jogador %c, escolha uma peça (linha e coluna) para mover: ", 
+        get_symbol_from_player(player)
     );
     Position origin;
     scanf("%d", &(origin.row));
     scanf("%d", &(origin.col));
     // Asks for the row and column for the new position
     printf(
-        "Jogador %d, escolha posicao (linha e coluna) para onde mover: ", 
-        player
+        "Jogador %c, escolha posicao (linha e coluna) para onde mover: ", 
+        get_symbol_from_player(player)
     );
     // Read the row and column from the user
     Position destiny;
@@ -840,9 +870,14 @@ Move* get_player_move(int player) {
 }
 
 
-void make_move(Board* board, Move move, bool* move_played) {
+void make_move(
+    Board* board, 
+    Move move, 
+    bool* move_played, 
+    AdjacencyMatrix* adj_matrix
+) {
     // Make a move for the player
-    if (is_valid_move_with_prints(board, move)) {
+    if (is_valid_move_with_prints(board, move, adj_matrix)) {
         set_player(move.destiny, board->turn_player, board);
         set_player(move.origin, id_empty, board);
         *move_played = true;
@@ -867,11 +902,10 @@ int size_of_board_state() {
 
 
 // Create a new BoardState
-BoardState* create_board_state(Board* board, BoardState* parent) {
+BoardState* create_board_state(BoardState* parent) {
     // Allocate memory for the board state
     BoardState* new_state = (BoardState*) malloc(sizeof(BoardState));
     // Initialize the board
-    new_state->board = board;
     
     // Set the parent node
     new_state->parent = parent;
@@ -892,8 +926,8 @@ BoardState* create_board_state(Board* board, BoardState* parent) {
     new_state->child_number = -1;
     
     // Initialize the height of the state as an invalid value
-    new_state->height = -1;
-    // Set the score of the state to a draw value and update it later
+    new_state->height = parent ? parent->height + 1 : 0;
+    // Set the score of the state as a draw value and update it later
     new_state->score = 0;
 
     // Return the new state
@@ -908,12 +942,12 @@ void delete_board_state(BoardState* state) {
         for (int i = 0; i < state->num_children; i++) {
             if (state->children[i] != NULL) {
                 delete_board_state(state->children[i]);
+                state->children[i] = NULL;
             }
         }
         free(state->children);
+        state->children = NULL;
     }
-    // Delete the board
-    delete_board(state->board);
 
     // Free the allocated memory for the state
     free(state);
@@ -942,115 +976,146 @@ bool is_winning_move(Board* board, Move* move) {
 
 // Verify if there is a winning move and returns it
 // Returns NULL if no winning move is found
-Move* get_winning_move(BoardState* state, Move** moves, int num_moves) {
+Move* get_winning_move(
+    BoardState* state, 
+    Board* board, 
+    Move** moves, 
+    int num_moves
+) {
     // Initialize variables to store the winning move
     bool win_found = false;
     int winning_move_pos = -1;
     
+    // RETURN USED TO SPEEDUP
     // Search all moves for a winning move
     for (int i = 0; i < num_moves && !win_found; i++) {
         // Verify if a move is a winning move, and store the position if it is
-        win_found = is_winning_move(state->board, moves[i]);
-        if (win_found) {
-            winning_move_pos = i; // Store the position of the winning move
+        if (is_winning_move(board, moves[i])) {
+            return moves[i]; // Return the winning move immediately
+                
         }
     }
-
-    // Get the best move if a winning move was found and return it
-    Move* best_move = (win_found) ? moves[winning_move_pos] : NULL;
-    return best_move;
+    return NULL;
 }
 
 
 // Get the best move for the computer from the current state
 // Return 0 if MAX_TREE_HEIGHT is reached
-// Return 1 if wins from the current state
-// Return -1 if results in loss
-// Return a score representing the game result from the current state
-int calculate_state_score(BoardState* state, int player, int computer_player) {
+int calculate_state_score(
+    BoardState* state, 
+    Board* board, 
+    int player, 
+    int computer_player,
+    AdjacencyMatrix* adj_matrix
+) {
     // Get the valid moves for the computer
-    if (state->height >= MAX_TREE_HEIGHT) {
+    if (state->height > MAX_TREE_HEIGHT) {
         return 0; // Search limit reached
     }
 
     // Get all valid moves for the current player
     Move** moves = (Move**) malloc(sizeof(Move*) * MAX_MOVES);
     int num_moves = 0;
-    
+
     list_valid_moves(
-        state->board, 
+        board, 
         moves,
-        &num_moves
+        &num_moves,
+        adj_matrix
     );
 
     // Verify if any move is a winning move
     Move* winning_move = get_winning_move(
         state, 
+        board,
         moves, 
         num_moves
     );
     
     // If can win from this position
     if (winning_move != NULL) {
+
         // Free the allocated memory for the moves
         for (int i = 0; i < num_moves; i++) {
             free(moves[i]);
         }
         free(moves);
-        
-        double exp = ((double) MAX_TREE_HEIGHT) / ((double) state->height);
-        int value = pow(9.0, exp); // Calculate the value of the winning move
-        // Verify who is the player
-        if (state->board->turn_player == computer_player) {
-            return value; // Computer wins
+
+        // Set the player on the winning move
+        int value = 10 * (MAX_TREE_HEIGHT - state->height + 1);
+
+        if (board->turn_player == computer_player) {
+            // If the computer is the turn player, return a positive score
+            value = value;
         } else {
-            return -value; // Player wins
+            // If the player is the turn player, return a negative score
+            value = -value;
         }
+
+        return value;
     }
 
-    // If no winning move was found, make all moves
-    // Sum winning, losing and not ended
-    for (int i = 0; i < num_moves; i++) {
-        // Create a new board state for the move
-        Board* new_board = (Board*) malloc(size_of_board_struct());
-        copy_board(state->board, new_board);
-        
+    bool found_turn_win = false;
+    // If no winning move was found, make all moves and calculate the score
+    for (int i = 0; i < num_moves && !found_turn_win; i++) {
         // Create a new board state
-        BoardState* new_state = create_board_state(new_board, state);
-        new_state->height = state->height + 1;
-
+        BoardState* new_state = create_board_state(state);
+        
         // Make the move
-        set_player(moves[i]->destiny, player, new_board);
-        set_player(moves[i]->origin, id_empty, new_board);
-
-        // Check current player and switch turns
-        if (new_board->turn_player == computer_player) {
-            new_board->turn_player = player; // Switch to player turn
-        } else {
-            new_board->turn_player = computer_player; // Switch to computer turn
-        }
+        set_player(moves[i]->destiny, board->turn_player, board);
+        set_player(moves[i]->origin, id_empty, board);
+        
+        // Set the child turn player
+        board->turn_player = (
+            (board->turn_player == computer_player) 
+            ? player : computer_player
+        );
 
         // Recursively check the game result from the new state
         int result = calculate_state_score(
             new_state, 
+            board,
             player,
-            computer_player
+            computer_player,
+            adj_matrix
         );
 
+        // Reset the previous turn player
+        board->turn_player = (
+            (board->turn_player == computer_player) 
+            ? player : computer_player
+        );
+        
         // Undo the move
-        set_player(moves[i]->origin, player, new_board);
-        set_player(moves[i]->destiny, id_empty, new_board);
+        set_player(moves[i]->origin, board->turn_player, board);
+        set_player(moves[i]->destiny, id_empty, board);
+        
+        // Store result
+        new_state->score = result;
 
         // Store the new state in the children
         state->children[state->num_children] = new_state;
         new_state->child_number = state->num_children;
         state->num_children++;
-    }
 
-    // Sum the results
-    int children_total_score = 0;
-    for (int i = 0; i < state->num_children; i++) {
-        children_total_score += state->children[i]->score;
+        found_turn_win = (
+            (board->turn_player == computer_player && result > 0) ||
+            (board->turn_player != computer_player && result < 0)
+        );
+    }
+    
+    // Best of the results
+    int best_score = state->children[0]->score;
+    for (int i = 1; i < state->num_children; i++) {
+        if (board->turn_player == computer_player) {
+            // If the computer is the turn player, we want to maximize the score
+            // So we take the maximum score
+            best_score = max(best_score, state->children[i]->score);
+        } else {
+            // If the player is the turn player, we want to minimize the score
+            // So we take the minimum score
+            best_score = min(best_score, state->children[i]->score);
+        }
     }
 
     // Free the allocated memory for the moves
@@ -1060,7 +1125,7 @@ int calculate_state_score(BoardState* state, int player, int computer_player) {
     free(moves);
 
     // Return the total result
-    return children_total_score;
+    return best_score;
     
 }
 
@@ -1068,34 +1133,47 @@ int calculate_state_score(BoardState* state, int player, int computer_player) {
 // Calculate the most profitable move for root
 void calculate_root_children_score(
     BoardState* root,
+    Board* board,
     int player_id,
     int computer_id,
     Move** moves,
-    int num_moves
+    int num_moves,
+    AdjacencyMatrix* adj_matrix
 ) {
     // For each move, create a new board state and calculate the score
     for (int i = 0; i < num_moves; i++) {
         // Create a new board state for the move
-        Board* new_board = (Board*) malloc(size_of_board_struct());
-        copy_board(root->board, new_board);
+        // Board* new_board = (Board*) malloc(size_of_board_struct());
+        // copy_board(root->board, new_board);
         
         // Create a new board state
-        BoardState* new_state = create_board_state(new_board, root);
-        new_state->height = root->height + 1;
+        BoardState* new_state = create_board_state(root);
 
         // Make the move
-        set_player(moves[i]->destiny, root->board->turn_player, new_board);
-        set_player(moves[i]->origin, id_empty, new_board);
+        set_player(moves[i]->destiny, board->turn_player, board);
+        set_player(moves[i]->origin, id_empty, board);
+        
+        board->turn_player = player_id;
 
         // Calculate the game result from the new state
         int result = calculate_state_score(
             new_state, 
+            board,
             player_id,
-            computer_id
+            computer_id,
+            adj_matrix
         );
 
         // Store the score in the new state
         new_state->score = result;
+        
+        // Reset the turn player to the computer
+        board->turn_player = computer_id;
+
+        // Unmake the move
+        set_player(moves[i]->origin, board->turn_player, board);
+        set_player(moves[i]->destiny, id_empty, board);
+
 
         // Store the new state in the children
         root->children[root->num_children] = new_state;
@@ -1114,11 +1192,12 @@ int get_move_with_highest_score_position(
 ) {
  
     // Start with first score
-    int best_score = -10000000; // A very low initial score
-    int best_move_pos = -1;
+    int best_score = children[0]->score;
+    int best_move_pos = 0;
 
     // Iterate through the children to find the best move
-    for (int i = 0; i < num_children; i++) {
+    for (int i = 1; i < num_children; i++) {
+    
         // Get the score of the child state
         int score = children[i]->score;
         
@@ -1126,6 +1205,11 @@ int get_move_with_highest_score_position(
         if (score > best_score) {
             best_score = score;
             best_move_pos = i;
+        } else if (score == best_score) {
+            // Choose randomly between the moves with the same score
+            if (rand() % 2 == 0) {
+                best_move_pos = i; // Randomly choose this move
+            }
         }
     }
 
@@ -1135,19 +1219,33 @@ int get_move_with_highest_score_position(
 
 
 // Get the best move for the computer
-Move* get_best_move(BoardState* root, int player_id, int computer_id) {
+Move* get_best_move(
+    BoardState* root, 
+    Board* board, 
+    int player_id, 
+    int computer_id,
+    AdjacencyMatrix* adj_matrix
+) {
     // Get the valid moves for the computer
     Move** moves = (Move**) malloc(sizeof(Move*) * MAX_MOVES);
     int num_moves = 0;
     list_valid_moves(
-        root->board, 
+        board, 
         moves,
-        &num_moves
+        &num_moves,
+        adj_matrix
     );
 
     // Verify if there is a winning move
-    Move* best_move = get_winning_move(root, moves, num_moves);
+    Move* best_move = get_winning_move(root, board, moves, num_moves);
     if (best_move != NULL) {
+        // Free the allocated memory for the moves except the best move
+        for (int i = 0; i < num_moves; i++) {
+            if (moves[i] != best_move) {
+                free(moves[i]);
+            }
+        }
+        free(moves);
         // If there is a winning move, return it
         return best_move;
     }
@@ -1155,10 +1253,12 @@ Move* get_best_move(BoardState* root, int player_id, int computer_id) {
     // If no winning move was found, calculate each children score
     calculate_root_children_score(
         root, 
+        board,
         player_id,
         computer_id,
         moves,
-        num_moves
+        num_moves,
+        adj_matrix
     );
 
     // Select the move with the best score
@@ -1175,6 +1275,7 @@ Move* get_best_move(BoardState* root, int player_id, int computer_id) {
             free(moves[i]);
         }
     }
+    free(moves);
 
     // If there is a best move, return it
     return best_move;
@@ -1189,7 +1290,7 @@ bool win_by_row(Board* board, int row) {
     // Check if all pieces in the row are the same as the turn player
     for (int j = 0; j < board->size; j++) {
         // If there is a position without the turn player, it is not a win
-        if (board->state[row][j] != board->turn_player) {
+        if (board->table[row][j] != board->turn_player) {
             return false; 
         }
     }
@@ -1202,7 +1303,7 @@ bool win_by_column(Board* board, int col) {
     // Check if all pieces in the column are the same as the turn player
     for (int i = 0; i < board->size; i++) {
         // If there is a position without the turn player, it is not a win
-        if (board->state[i][col] != board->turn_player) {
+        if (board->table[i][col] != board->turn_player) {
             return false; 
         }
     }
@@ -1216,7 +1317,7 @@ bool win_by_main_diagonal(Board* board) {
     // Check if all pieces in the main diagonal are the same as the turn player
     for (int i = 0; i < board->size; i++) {
         // If there is a position without the turn player, it is not a win
-        if (board->state[i][i] != board->turn_player) {
+        if (board->table[i][i] != board->turn_player) {
             return false; 
         }
     }
@@ -1230,7 +1331,7 @@ bool win_by_anti_diagonal(Board* board) {
     // Check if all pieces in the anti diagonal are the same as the turn player
     for (int i = 0; i < board->size; i++) {
         // If there is a position without the turn player, it is not a win
-        if (board->state[i][board->size - 1 - i] != board->turn_player) {
+        if (board->table[i][board->size - 1 - i] != board->turn_player) {
             return false; 
         }
     }
@@ -1322,8 +1423,13 @@ bool player_is_winner(Board* board) {
 
 
 // Play a turn for the player
-void play_user_turn(Board* board) {
+void play_user_turn(Board* board, AdjacencyMatrix* adj_matrix) {
     // Try to play a turn until a valid move is made
+    printf(
+        "Jogador %c, é sua vez de jogar.\n", 
+        get_symbol_from_player(board->turn_player)
+    );
+
     bool turn_played = false;
     while (!turn_played) {
         // Get the player's move
@@ -1331,23 +1437,39 @@ void play_user_turn(Board* board) {
         Position new_pos;
         Move* move = get_player_move(board->turn_player);
         // Make the move if valid
-        make_move(board, *move, &turn_played);
+        make_move(board, *move, &turn_played, adj_matrix);
+        free(move);
     }
     return;
 }
 
-void play_computer_turn(Board* board) {
+void play_computer_turn(
+    Board* board, 
+    int player_id, 
+    int computer_id,
+    AdjacencyMatrix* adjacency_matrix
+) {
+    printf(
+        "É a vez do computador (%c).\n", 
+        get_symbol_from_player(board->turn_player)
+    );
     // Get the computer move
     Move* move = get_computer_move(
         board, 
-        board->turn_player, 
-        (board->turn_player == id_player_1) ? id_player_2 : id_player_1
+        player_id,
+        computer_id,
+        adjacency_matrix
+    );
+
+    printf("Computador jogou: (%d, %d) -> (%d, %d)\n",
+        move->origin.row, move->origin.col,
+        move->destiny.row, move->destiny.col
     );
 
     // Make the move
     bool move_played = false;
     if (move != NULL) {
-        make_move(board, *move, &move_played);
+        make_move(board, *move, &move_played, adjacency_matrix);
         free(move);
     } else {
         printf("Erro: Nenhum movimento valido encontrado.\n");
@@ -1363,30 +1485,41 @@ void player_vs_player() {
     
     // Initialize board
     Board* board = create_board();
+    AdjacencyMatrix* adj_matrix = create_adjacency_matrix(NUM_NODES);
 
     // Show board
     print_board(board);
     
     // Initialize game related varibles
     bool winner_found = false;
-    int num_rounds = MAX_ROUNDS;
+    int num_rounds = MAX_TURNS;
     // While there is no winner and rounds are not over
     for (int i = 0; i < num_rounds && !winner_found; i++) {
         printf("Rodada %d\n", i + 1);
-        // Player 1 plays on even rounds, Player 2 on odd rounds.
-        board->turn_player = (i % 2 == 0) ? id_player_1 : id_player_2;
-        printf(
-            "Jogador %c, e sua vez de jogar.\n", 
-            get_symbol_from_player(board->turn_player)
-        );
-
-        // Make the player's turn
-        play_user_turn(board);
         
-        // Check for winner
-        if (player_is_winner(board)) {
-            board->winner = board->turn_player;
-            winner_found = true;
+        // Player 1 plays on even rounds, Player 2 on odd rounds.
+        board->turn_player = id_player_1;
+        // Make the player's turn
+        play_user_turn(board, adj_matrix);
+        // Verify if the player has won
+        winner_found = player_is_winner(board);
+        int winner = (winner_found) ? board->turn_player : id_empty;
+
+        // If no winner found, second player plays
+        // If a winner is found, the game ends
+        if (!winner_found) {
+            print_board(board);
+            // Change turn player
+            board->turn_player = id_player_2;
+            // Make the player's turn
+            play_user_turn(board, adj_matrix);
+            // Verify if the player has won
+            winner_found = player_is_winner(board);
+            winner = (winner_found) ? board->turn_player : id_empty;
+        }
+        // If a winner is found, set the winner
+        if (winner_found) {
+            board->winner = winner;
         }
 
         // Print the board after the turn
@@ -1402,6 +1535,7 @@ void player_vs_player() {
     
     // Free the allocated memory for the board
     delete_board(board);
+    delete_adjacency_matrix(adj_matrix);
     return;
 }
 
@@ -1411,61 +1545,63 @@ void player_vs_computer(bool player_starts) {
     printf("Player vs Computer\n");
     
     // Define player ids
-    int player_id;
-    int computer_id;
-
-    // Set player ids based on who starts
-    if (player_starts) {
-        player_id = id_player_1;
-        computer_id = id_player_2;
-    } else {
-        computer_id = id_player_1;
-        player_id = id_player_2;
-    }
+    int player_id = (player_starts) ? id_player_1 : id_player_2;
+    int computer_id = (player_starts) ? id_player_2 : id_player_1;
 
     // Initialize board
     Board* board = create_board();
+    AdjacencyMatrix* adjacency_matrix = create_adjacency_matrix(NUM_NODES);
 
     // Show board
     print_board(board);
     
     // Initialize game related varibles
     bool winner_found = false;
-    int num_rounds = MAX_ROUNDS;
+    int num_rounds = MAX_TURNS;
 
     // While there is no winner and rounds are not over
     for (int i = 0; i < num_rounds && !winner_found; i++) {
         printf("Rodada %d\n", i + 1);
-        // Player 1 plays on even rounds, Player 2 on odd rounds.
         
-        board->turn_player = (i % 2 == 0) ? id_player_1 : id_player_2;
-
-        bool is_player_turn = (board->turn_player == player_id);
-        // Print the current player's turn
-        if (is_player_turn) {
-            printf(
-                "Jogador %c, é sua vez de jogar.\n", 
-                get_symbol_from_player(board->turn_player)
-            );
-        } else {
-            printf("É a vez do computador.\n");
-        }
-
-        // Play the turn based on who is playing
-        if (is_player_turn) {
+        // First player plays
+        board->turn_player = id_player_1;
+        if (board->turn_player == player_id) {
             // Make the player's turn
-            play_user_turn(board);
+            play_user_turn(board, adjacency_matrix);
         } else {
             // Make the computer's turn
-            play_computer_turn(board);
-            sleep(3); // Sleep for 1 second to simulate computer thinking
+            play_computer_turn(board, player_id, computer_id, adjacency_matrix);
         }
-        // Check for winner
-        if (player_is_winner(board)) {
-            board->winner = board->turn_player;
-            winner_found = true;
+
+        // Verify if the first player has won
+        winner_found = player_is_winner(board);
+        int winner = (winner_found) ? board->turn_player : id_empty;
+        // If no winner found, second player plays
+        if (!winner_found) {
+            print_board(board);
+            // Change turn player
+            board->turn_player = id_player_2;
+            if (board->turn_player == player_id) {
+                // Make the player's turn
+                play_user_turn(board, adjacency_matrix);
+            } else {
+                // Make the computer's turn
+                play_computer_turn(
+                    board, 
+                    player_id, 
+                    computer_id, 
+                    adjacency_matrix
+                );
+            }
+            // Verify if the second player has won
+            winner_found = player_is_winner(board);
+            winner = (winner_found) ? board->turn_player : id_empty;
         }
-        
+
+        // If a winner is found, set the winner
+        if (winner_found) {
+            board->winner = winner;
+        }
         // Print the board after the turn
         print_board(board);
     }
@@ -1479,6 +1615,7 @@ void player_vs_computer(bool player_starts) {
     
     // Free the allocated memory for the board
     delete_board(board);
+    delete_adjacency_matrix(adjacency_matrix);
     return;
 }
 
@@ -1505,6 +1642,9 @@ int get_menu_option() {
 
 // Main function to run the game
 int main() {
+    // Seed the random number generator
+    srand(time(NULL));
+
     // Print rules and welcome message
     bool valid_option;
     printf("Bem-vindo ao jogo do pe de galinha!\n");
@@ -1514,7 +1654,7 @@ int main() {
         "O jogador 1 e representado pelo símbolo X "
         "e o jogador 2 pelo símbolo O.\n"
     );
-    printf("O jogador 1 inicia o jogo.\n");
+    printf("O jogador 1 (X) inicia o jogo.\n");
 
     // Main game loop
     do {
